@@ -110,6 +110,12 @@ class H2SinglePacketAttacker:
 
         args = parser.parse_args()
 
+        if args.header:
+            headers = []
+            for header in args.header:
+                headers.append(header.split(': ')[0].lower() + ': ' + header.split(': ')[1])
+            args.header = headers
+
         if (args.port_number != 80 and args.port_number != 443) and (args.scheme is None):
             utils.cprint(self, 'Please specify the scheme using the --scheme flag.', 'failure')
             exit()
