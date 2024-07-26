@@ -53,17 +53,6 @@ optional arguments:
                         Override method header for GET requests in mode 2.
   --display_mode {0,1}  Mode to display responses (0: normal, 1: detailed).
   --pickle PICKLE       Path to a pickle file for saving or loading state (declare path without extension).
-
-## Repository Link
-
-For Python scripts to solve race condition vulnerabilities on PortSwigger utilizing this tool, please visit the following repository:
-
-[PortSwigger Race Conditions Lab Scripts](https://github.com/your-username/portswigger-race-conditions)
-
-## Author
-
-Coded by Mohamed Ahmed (ma4747gh).
-
 ```
 
 ## Repository Link
