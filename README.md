@@ -1,61 +1,82 @@
 # H2SinglePacketAttacker
 
-This tool is designed to send HTTP/2 requests in a single packet, which can be useful for testing race conditions attacks. It is based on the work by Amin (https://github.com/nxenon) and his tool [h2spacex](https://github.com/nxenon/h2spacex). This project was created as a practice exercise to better understand the underlying concepts and implementation.
+## Description
+
+This tool is designed to send HTTP/2 requests in a single packet, which is useful for testing race condition attacks. It is developed to assist in scenarios where you need to perform race condition attacks by leveraging the HTTP/2 protocol. The tool is based on the work by Amin (https://github.com/nxenon) and his tool [h2spacex](https://github.com/nxenon/h2spacex), but it adds more flexibility. It supports sending multiple requests to a single endpoint using a wordlist, sending multiple requests to multiple endpoints, utilizing both GET and POST methods, and sending empty POST requests.
 
 ## Features
 
-- Establishes a socket connection, with optional TLS support.
-- Sends HTTP/2 connection preface and settings frames.
-- Supports GET and POST requests, with customizable headers and data.
-- Provides response reading and decompression for gzip, deflate, and Brotli encoded data.
-- Includes logging for debugging and error tracking.
-- Allows saving the state using pickle files.
+- Send HTTP/2 requests in a single packet.
+- Allows configuration of multiple streams.
+- Includes support for adding custom headers and data.
+- Provides functionality for sending requests to multiple endpoints.
+- Includes different modes for handling GET requests.
+- Send multiple requests to a single endpoint using a wordlist.
+- Send multiple requests to multiple endpoints.
+- Support for both GET and POST methods.
+- Ability to send empty POST requests.
+- Pickle functionality for saving or loading tool state.
 
 ## Usage
 
-### Arguments
+```
+usage: tool.py [-h] [--tls_channel] [--streams STREAMS] [--reading_response_timeout READING_RESPONSE_TIMEOUT]
+               [--scheme {http,https}] [--method {GET,POST}] [--path PATH] [--header HEADER]
+               [--data DATA] [--variable_data_key VARIABLE_DATA_KEY] [--word_list WORD_LIST]
+               [--multiple_endpoint_mode] [--get_mode {0,1,2}] [--override_method {x-method-override,x-http-method-override}]
+               [--display_mode {0,1}] [--pickle PICKLE]
+               host_name port_number
 
-- `host_name`: The hostname of the server.
-- `port_number`: The port number to connect to.
-- `--tls_channel`: Enable TLS for the connection.
-- `--streams`: Number of streams to use (default: 4).
-- `--reading_response_timeout`: Response reading timeout in seconds (default: 4).
-- `--scheme`: Specify the URL scheme (http or https).
-- `--method`: HTTP method to use (default: GET).
-- `--path`: The path to request (default: /).
-- `--header`: Add headers to the request. Can be used multiple times.
-- `--data`: Data to include in the request body.
-- `--get_mode`: Mode for GET requests (0: last byte removal, 1: remove EH flag, 2: use POST with override method header, default: 0).
-- `--override_method`: Override method header for GET requests in mode 2.
-- `--display_mode`: Mode to display responses (default: 0).
-- `--pickle`: Path to a pickle file for saving or loading state (declare path without extension).
+Tool to send HTTP/2 requests in a single packet, useful for testing race condition attacks.
 
-### Examples
+positional arguments:
+  host_name             The hostname of the server.
+  port_number           The port number to connect to.
 
-#### Basic GET Request
+optional arguments:
+  -h, --help            show this help message and exit
+  --tls_channel         Enable TLS for the connection.
+  --streams STREAMS     Number of streams to use (default: 4).
+  --reading_response_timeout READING_RESPONSE_TIMEOUT
+                        Response reading timeout in seconds (default: 4).
+  --scheme {http,https} Specify the URL scheme (http or https).
+  --method {GET,POST}   HTTP method to use (default: GET).
+  --path PATH           The path to request (default: /).
+  --header HEADER       Add headers to the request. Can be used multiple times.
+  --data DATA           Data to include in the request body.
+  --variable_data_key VARIABLE_DATA_KEY
+                        Key in the request data to be replaced with items from the word list.
+  --word_list WORD_LIST Path to a file containing words to be used in place of the variable data key.
+  --multiple_endpoint_mode
+                        Enable mode to send requests to multiple endpoints.
+  --get_mode {0,1,2}    Mode for GET requests (0: last byte removal, 1: remove EH flag, 2: use POST with override method header, default: 0).
+  --override_method {x-method-override,x-http-method-override}
+                        Override method header for GET requests in mode 2.
+  --display_mode {0,1}  Mode to display responses (0: normal, 1: detailed).
+  --pickle PICKLE       Path to a pickle file for saving or loading state (declare path without extension).
 
-```sh
-python h2_single_packet_attacker.py example.com 443 --tls_channel --method GET --path /index.html
+## Repository Link
+
+For Python scripts to solve race condition vulnerabilities on PortSwigger utilizing this tool, please visit the following repository:
+
+[PortSwigger Race Conditions Lab Scripts](https://github.com/your-username/portswigger-race-conditions)
+
+## Author
+
+Coded by Mohamed Ahmed (ma4747gh).
+
 ```
 
-#### POST Request with Data and Headers
+## Repository Link
 
-```sh
-python h2_single_packet_attacker.py example.com 443 --tls_channel --method POST --path /submit --header "Content-Type: application/json" --data '{"key": "value"}'
-```
+For Python scripts to solve race condition vulnerabilities on PortSwigger utilizing this tool, please visit the following repository:
 
-#### Using GET Mode 2 with Method Override
-
-```sh
-python h2_single_packet_attacker.py example.com 443 --tls_channel --method GET --path /api --get_mode 2 --override_method x-method-override
-```
-
-#### Saving State with Pickle
-
-```sh
-python h2_single_packet_attacker.py example.com 443 --tls_channel --method GET --path /index.html --pickle session
-```
+[PortSwigger 'Race conditions' Labs Scripts](https://github.com/ma4747gh/PenetrationTestingScripts/tree/main/PortSwigger/Server-side%20topics/Race%20conditions)
 
 ## Credits
 
-This tool is inspired by the work of Amin (https://github.com/nxenon) and his tool [h2spacex](https://github.com/nxenon/h2spacex). The implementation serves as a learning project to practice the concepts of HTTP/2, network programming and race conditions attacks.
+This tool is inspired by the work of Amin (https://github.com/nxenon) and his tool [h2spacex](https://github.com/nxenon/h2spacex).
+
+## Author
+
+Coded by Mohamed Ahmed (ma4747gh).
