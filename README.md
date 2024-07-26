@@ -6,10 +6,9 @@ This tool is designed to send HTTP/2 requests in a single packet, which is usefu
 
 ## Features
 
+- CLI-based
 - Send HTTP/2 requests in a single packet.
-- Allows configuration of multiple streams.
 - Includes support for adding custom headers and data.
-- Provides functionality for sending requests to multiple endpoints.
 - Includes different modes for handling GET requests.
 - Send multiple requests to a single endpoint using a wordlist.
 - Send multiple requests to multiple endpoints.
