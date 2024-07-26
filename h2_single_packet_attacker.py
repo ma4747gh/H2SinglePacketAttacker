@@ -35,11 +35,16 @@ class H2SinglePacketAttacker:
         self.path = self.args.path
         self.headers = self.args.header if self.args.header else []
         self.data = self.args.data
+        self.variable_data_key = self.args.variable_data_key
+        self.word_list = self.args.word_list
+        self.word_list_items = []
 
+        self.multiple_endpoint_mode = self.args.multiple_endpoint_mode
         self.get_mode = self.args.get_mode
         self.override_method = self.args.override_method
         self.display_mode = self.args.display_mode
 
+        self.streams_and_associate_data = {}
         self.pickle = self.args.pickle
 
         self.socket = None
@@ -97,11 +102,14 @@ class H2SinglePacketAttacker:
         parser.add_argument('--reading_response_timeout', type=int, default=4, help='Response reading timeout in seconds (default: 4).')
 
         parser.add_argument('--scheme', choices=['http', 'https'], help='Specify the URL scheme (http or https).')
-        parser.add_argument('--method', choices=['GET', 'POST'], default='GET', help='HTTP method to use (default: GET).')
-        parser.add_argument('--path', default='/', help='The path to request (default: /).')
+        parser.add_argument('--method', action='append', choices=['GET', 'POST'], help='HTTP method to use (default: GET).')
+        parser.add_argument('--path', action='append', help='The path to request (default: /).')
         parser.add_argument('--header', action='append', help='Add headers to the request. Can be used multiple times.')
-        parser.add_argument('--data', help='Data to include in the request body.')
+        parser.add_argument('--data', action='append', help='Data to include in the request body.')
+        parser.add_argument('--variable_data_key', help='Key in the request data to be replaced with items from the word list.')
+        parser.add_argument('--word_list', help='Path to a file containing words to be used in place of the variable data key.')
 
+        parser.add_argument('--multiple_endpoint_mode', action='store_true', help='Enable mode to send requests to multiple endpoints.')
         parser.add_argument('--get_mode', type=int, choices=[0, 1, 2], default=0, help='Mode for GET requests (0: last byte removal, 1: remove EH flag, 2: use POST with override method header, default: 0).')
         parser.add_argument('--override_method', choices=['x-method-override', 'x-http-method-override'], help='Override method header for GET requests in mode 2.')
         parser.add_argument('--display_mode', type=int, choices=[0, 1], default=0, help='Mode to display responses (default: 0).')
@@ -113,8 +121,24 @@ class H2SinglePacketAttacker:
         if args.header:
             headers = []
             for header in args.header:
-                headers.append(header.split(': ')[0].lower() + ': ' + header.split(': ')[1])
+                if header != 'break':
+                    headers.append(header.split(': ')[0].lower() + ': ' + header.split(': ')[1])
+                else:
+                    headers.append(header)
             args.header = headers
+
+        if args.method and len(args.method) == 1 and not args.multiple_endpoint_mode:
+            args.method = args.method[0]
+        elif not args.method:
+            args.method = 'GET'
+
+        if args.path and len(args.path) == 1 and not args.multiple_endpoint_mode:
+            args.path = args.path[0]
+        elif not args.path:
+            args.path = '/'
+
+        if args.data and len(args.data) == 1 and not args.multiple_endpoint_mode:
+            args.data = args.data[0]
 
         if (args.port_number != 80 and args.port_number != 443) and (args.scheme is None):
             utils.cprint(self, 'Please specify the scheme using the --scheme flag.', 'failure')
@@ -129,6 +153,11 @@ class H2SinglePacketAttacker:
             exit()
 
         return args
+
+    def read_word_list_file(self):
+        with open(self.word_list) as file:
+            for line in file.readlines():
+                self.word_list_items.append(line.strip())
 
     def establish_socket_connection(self):
         utils.cprint(self, 'Establishing socket connection...', 'ack')
@@ -200,84 +229,197 @@ class H2SinglePacketAttacker:
             exit()
 
     def create_post_request_frames(self, stream_id):
-        data = None
-        if self.data:
-            data = bytes(self.data, 'utf-8')
+        if not self.multiple_endpoint_mode:
+            data = None
+            if self.data:
+                data = bytes(self.data, 'utf-8')
+                if self.variable_data_key:
+                    data = data.replace(self.variable_data_key.encode(), self.word_list_items.pop(0).encode())
+                    self.streams_and_associate_data[stream_id] = {}
+                    self.streams_and_associate_data[stream_id]['request_data'] = data
 
-        if self.port_number == 80:
-            scheme = 'http'
-        elif self.port_number == 443:
-            scheme = 'https'
+            if self.port_number == 80:
+                scheme = 'http'
+            elif self.port_number == 443:
+                scheme = 'https'
+            else:
+                scheme = self.scheme
+            request_line = f':method {self.method}\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
+
+            all_headers = request_line + '\n'.join(self.headers)
+
+            frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id, body=data)
+
+            return frames
         else:
-            scheme = self.scheme
-        request_line = f':method {self.method}\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
+            data = None
+            if self.data:
+                data = bytes(self.data.pop(0), 'utf-8')
 
-        all_headers = request_line + '\n'.join(self.headers)
+            if self.port_number == 80:
+                scheme = 'http'
+            elif self.port_number == 443:
+                scheme = 'https'
+            else:
+                scheme = self.scheme
+            request_line = f':method {self.method.pop(0)}\n:path {self.path.pop(0)}\n:scheme {scheme}\n:authority {self.host_name}\n'
 
-        frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id, body=data)
+            headers = []
+            for header in self.headers:
+                if header != 'break':
+                    headers.append(header)
+                else:
+                    break
+            self.headers = self.headers[len(headers)+1:]
 
-        return frames
+            all_headers = request_line + '\n'.join(headers)
+
+            frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id, body=data)
+
+            return frames
 
     def create_get_request_frames(self, stream_id):
-        if self.port_number == 80:
-            scheme = 'http'
-        elif self.port_number == 443:
-            scheme = 'https'
+        if not self.multiple_endpoint_mode:
+            if self.port_number == 80:
+                scheme = 'http'
+            elif self.port_number == 443:
+                scheme = 'https'
+            else:
+                scheme = self.scheme
+
+            if self.get_mode != 2:
+                request_line = f':method {self.method}\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
+            else:
+                request_line = f':method POST\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
+
+            if self.get_mode == 0:
+                all_headers = request_line + '\n'.join(self.headers) + '\ncontent-length: 1\n'
+            elif self.get_mode == 1:
+                all_headers = request_line + '\n'.join(self.headers)
+            else:
+                all_headers = request_line + '\n'.join(self.headers) + '\n{}: GET\n'.format(self.override_method)
+
+            frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id)
+
+            return frames
         else:
-            scheme = self.scheme
+            if self.port_number == 80:
+                scheme = 'http'
+            elif self.port_number == 443:
+                scheme = 'https'
+            else:
+                scheme = self.scheme
 
-        if self.get_mode != 2:
-            request_line = f':method {self.method}\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
-        else:
-            request_line = f':method POST\n:path {self.path}\n:scheme {scheme}\n:authority {self.host_name}\n'
+            if self.get_mode != 2:
+                request_line = f':method {self.method.pop(0)}\n:path {self.path.pop(0)}\n:scheme {scheme}\n:authority {self.host_name}\n'
+            else:
+                request_line = f':method POST\n:path {self.path.pop(0)}\n:scheme {scheme}\n:authority {self.host_name}\n'
 
-        if self.get_mode == 0:
-            all_headers = request_line + '\n'.join(self.headers) + 'content-length: 1\n'
-        elif self.get_mode == 1:
-            all_headers = request_line + '\n'.join(self.headers)
-        else:
-            all_headers = request_line + '\n'.join(self.headers) + '{}: GET\n'.format(self.override_method)
+            headers = []
+            for header in self.headers:
+                if header != 'break':
+                    headers.append(header)
+                else:
+                    break
+            self.headers = self.headers[len(headers) + 1:]
 
-        frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id)
+            if self.get_mode == 0:
+                all_headers = request_line + '\n'.join(headers) + '\ncontent-length: 1\n'
+            elif self.get_mode == 1:
+                all_headers = request_line + '\n'.join(headers)
+            else:
+                all_headers = request_line + '\n'.join(headers) + '\n{}: GET\n'.format(self.override_method)
 
-        return frames
+            frames = h2.HPackHdrTable().parse_txt_hdrs(bytes(all_headers, 'utf-8'), stream_id=stream_id)
+
+            return frames
 
     def prepare_frames(self):
         headers_and_data_frames = []
         last_byte_frames = []
 
         stream_id = 1
+        if self.multiple_endpoint_mode:
+            methods = []
+            for method in self.method:
+                methods.append(method)
+
         for _ in range(self.streams):
-            if self.method == 'POST':
-                post_request_frames = self.create_post_request_frames(stream_id)
+            if not self.multiple_endpoint_mode:
+                if self.method == 'POST':
+                    post_request_frames = self.create_post_request_frames(stream_id)
 
-                last_byte = post_request_frames.frames[-1].data[-1:]
-                last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(data=last_byte)
+                    last_byte = post_request_frames.frames[-1].data[-1:]
+                    last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(data=last_byte)
 
-                post_request_frames.frames[-1].data = post_request_frames.frames[-1].data[:-1]
-                post_request_frames.frames[-1].flags.remove('ES')
+                    post_request_frames.frames[-1].data = post_request_frames.frames[-1].data[:-1]
+                    post_request_frames.frames[-1].flags.remove('ES')
 
-                headers_and_data_frames.append(post_request_frames)
-                last_byte_frames.append(last_byte_data_frame)
+                    headers_and_data_frames.append(post_request_frames)
+                    last_byte_frames.append(last_byte_data_frame)
 
-                stream_id += 2
-            elif self.method == 'GET':
-                get_request_frames = self.create_get_request_frames(stream_id)
+                    stream_id += 2
+                elif self.method == 'GET':
+                    get_request_frames = self.create_get_request_frames(stream_id)
 
-                if self.get_mode == 0 or self.get_mode == 2:
-                    get_request_frames.frames[0].flags.remove('ES')
-                else:
-                    get_request_frames.frames[0].flags.remove('EH')
+                    if self.get_mode == 0 or self.get_mode == 2:
+                        get_request_frames.frames[0].flags.remove('ES')
+                    else:
+                        get_request_frames.frames[0].flags.remove('EH')
 
-                if self.get_mode == 0 or self.get_mode == 2:
-                    last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(data=b'A')
-                else:
-                    last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'EH'}) / h2.H2ContinuationFrame()
+                    if self.get_mode == 0 or self.get_mode == 2:
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(data=b'A')
+                    else:
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'EH'}) / h2.H2ContinuationFrame()
 
-                headers_and_data_frames.append(get_request_frames)
-                last_byte_frames.append(last_byte_data_frame)
+                    headers_and_data_frames.append(get_request_frames)
+                    last_byte_frames.append(last_byte_data_frame)
 
-                stream_id += 2
+                    stream_id += 2
+            else:
+                method = methods.pop(0)
+                if method == 'POST':
+                    post_request_frames = self.create_post_request_frames(stream_id)
+
+                    if len(post_request_frames.frames) == 1:
+                        post_request_frames.frames[0].flags.remove('EH')
+
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id,
+                                                          flags={'EH'}) / h2.H2ContinuationFrame()
+
+                        headers_and_data_frames.append(post_request_frames)
+                        last_byte_frames.append(last_byte_data_frame)
+                    else:
+                        last_byte = post_request_frames.frames[-1].data[-1:]
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(
+                            data=last_byte)
+
+                        post_request_frames.frames[-1].data = post_request_frames.frames[-1].data[:-1]
+                        post_request_frames.frames[-1].flags.remove('ES')
+
+                        headers_and_data_frames.append(post_request_frames)
+                        last_byte_frames.append(last_byte_data_frame)
+
+                    stream_id += 2
+                elif method == 'GET':
+                    get_request_frames = self.create_get_request_frames(stream_id)
+
+                    if self.get_mode == 0 or self.get_mode == 2:
+                        get_request_frames.frames[0].flags.remove('ES')
+                    else:
+                        get_request_frames.frames[0].flags.remove('EH')
+
+                    if self.get_mode == 0 or self.get_mode == 2:
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id, flags={'ES'}) / h2.H2DataFrame(
+                            data=b'A')
+                    else:
+                        last_byte_data_frame = h2.H2Frame(stream_id=stream_id,
+                                                          flags={'EH'}) / h2.H2ContinuationFrame()
+
+                    headers_and_data_frames.append(get_request_frames)
+                    last_byte_frames.append(last_byte_data_frame)
+
+                    stream_id += 2
 
         return headers_and_data_frames, last_byte_frames
 
@@ -459,6 +601,9 @@ class H2SinglePacketAttacker:
         self.display_responses_for_requests(headers_and_data_frames)
         if self.pickle:
             with open('{}.pkl'.format(self.pickle), 'wb') as file:
+                if self.streams_and_associate_data:
+                    for key, value in self.streams_and_associate_data.items():
+                        headers_and_data_frames[key].update(value)
                 pickle.dump(headers_and_data_frames, file)
 
     def close_connection(self):
@@ -474,7 +619,8 @@ class H2SinglePacketAttacker:
             exit()
 
     def start(self):
-        pass
+        if self.word_list:
+            self.read_word_list_file()
         self.establish_socket_connection()
         if self.tls_channel:
             self.establish_tls_connection()
